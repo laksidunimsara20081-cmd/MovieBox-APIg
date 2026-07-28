@@ -1,17 +1,30 @@
 {
-  "name": "moviebox-stream-proxy",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
+  "name": "moviebox-api",
+  "version": "3.2.0",
+  "description": "MovieBox Direct API & Ultra Streaming Proxy Engine",
+  "main": "index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "npx wrangler dev",
-    "deploy": "npx wrangler deploy"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
+  "keywords": [
+    "moviebox",
+    "api",
+    "scraper",
+    "heroku",
+    "express"
+  ],
+  "author": "Laksidu Nimsara",
+  "license": "ISC",
   "dependencies": {
-    "express": "^4.19.2"
+    "axios": "^1.7.9",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
   },
   "devDependencies": {
-    "wrangler": "^3.0.0"
+    "nodemon": "^3.1.9"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
