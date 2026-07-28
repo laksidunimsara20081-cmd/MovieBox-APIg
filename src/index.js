@@ -12,7 +12,7 @@ app.use(express.json());
 const BASE_URL = "https://themoviebox.xyz";
 const H5_API_BASE = "https://h5-api.aoneroom.com/wefeed-h5api-bff";
 
-// 1. Dynamic Client Token Generator
+// 1. Dynamic Client Token Generator (API Calls සදහා පමණි)
 function getClientToken() {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const reversedTs = timestamp.split('').reverse().join('');
@@ -20,33 +20,17 @@ function getClientToken() {
     return `${timestamp},${md5Hash}`;
 }
 
-// 2. Generate Random Mobile IP to Bypass CDN Rate Limits
-function getRandomIP() {
-    const classA = [103, 112, 118, 124, 150, 175, 180, 202, 223];
-    const first = classA[Math.floor(Math.random() * classA.length)];
-    return `${first}.${Math.floor(Math.random() * 254) + 1}.${Math.floor(Math.random() * 254) + 1}.${Math.floor(Math.random() * 254) + 1}`;
-}
-
-// 3. Exact CDN Headers Required by MovieBox CDN
-function getMovieBoxHeaders(refererUrl = "https://h5.aoneroom.com/") {
+// 2. MovieBox API Headers (Search & Details සදහා)
+function getMovieBoxApiHeaders(refererUrl = "https://videodownloader.site/") {
     const token = getClientToken();
-    const fakeIp = getRandomIP();
-
     return {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Mobile/15E148 Safari/604.1",
-        "Accept": "*/*",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "identity",
-        "Origin": "https://h5.aoneroom.com",
+        "Origin": "https://videodownloader.site",
         "Referer": refererUrl,
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "cross-site",
         "X-Client-Token": token,
-        "x-client-token": token,
-        "X-Forwarded-For": fakeIp,
-        "Client-IP": fakeIp,
-        "X-Real-IP": fakeIp
+        "x-client-token": token
     };
 }
 
@@ -71,8 +55,7 @@ function formatSize(sizeBytes) {
 app.get('/', (req, res) => {
     res.json({
         status: "Online",
-        engine: "MovieBox Direct Stream Engine v5.0.0",
-        message: "API Proxy running successfully",
+        engine: "MovieBox Direct Video Proxy Engine v6.0.0",
         endpoints: {
             search: "/search?q=movie_name",
             detail: "/detail?detail_path=movie-slug",
@@ -98,7 +81,7 @@ app.get(['/search', '/api/search'], async (req, res) => {
 
     try {
         const response = await axios.post(url, payload, {
-            headers: getMovieBoxHeaders(),
+            headers: getMovieBoxApiHeaders(`https://videodownloader.site/?utm_source=movieboxco&q=${encodeURIComponent(q)}`),
             timeout: 12000
         });
 
@@ -148,10 +131,10 @@ app.get(['/detail', '/api/details'], async (req, res) => {
 
     try {
         const detailUrl = `${H5_API_BASE}/detail?detailPath=${path}`;
-        const pageReferer = `https://h5.aoneroom.com/detail/${path}`;
+        const pageReferer = `https://videodownloader.site/?utm_source=movieboxco&q=${encodeURIComponent(path)}`;
         
         const rDetail = await axios.get(detailUrl, { 
-            headers: getMovieBoxHeaders(pageReferer), 
+            headers: getMovieBoxApiHeaders(pageReferer), 
             timeout: 15000 
         });
         
@@ -179,7 +162,7 @@ app.get(['/detail', '/api/details'], async (req, res) => {
 
         try {
             const rPlay = await axios.get(downloadUrl, { 
-                headers: getMovieBoxHeaders("https://videodownloader.site/"), 
+                headers: getMovieBoxApiHeaders(pageReferer), 
                 timeout: 15000 
             });
 
@@ -253,7 +236,7 @@ app.get(['/detail', '/api/details'], async (req, res) => {
     }
 });
 
-// 3. 100% WORKING DOWNLOAD PROXY ENGINE (WITH CORRECT HEADERS)
+// 3. FIX: CDN DOWNLOAD PROXY ENGINE (NO 403 / NO EXTRA HEADERS)
 app.get('/api/download-proxy', async (req, res) => {
     const rawUrl = req.query.url;
     let filename = req.query.filename || "video";
@@ -267,27 +250,31 @@ app.get('/api/download-proxy', async (req, res) => {
     const ext = isSub ? ".srt" : ".mp4";
     filename = filename.endsWith(ext) ? filename : `${filename}${ext}`;
 
-    // Get Mobile CDN Headers
-    const proxyHeaders = getMovieBoxHeaders("https://h5.aoneroom.com/");
+    // Hakunaymatata / CDN එකට 403 නොදී බාගැනීමට අවශ‍ය Clean Headers
+    const cleanCdnHeaders = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Encoding": "identity"
+    };
 
-    // Handle range/seeking requests
+    // Forward range header if browser requests video stream range
     if (req.headers.range) {
-        proxyHeaders["Range"] = req.headers.range;
+        cleanCdnHeaders["Range"] = req.headers.range;
     }
 
     try {
         const response = await axios({
             method: 'get',
             url: targetUrl,
-            headers: proxyHeaders,
+            headers: cleanCdnHeaders,
             responseType: 'stream',
-            timeout: 30000,
-            maxRedirects: 5
+            timeout: 60000,
+            maxRedirects: 10
         });
 
         const safeFilename = encodeURIComponent(filename);
         
-        // Force file attachment download
+        // Response Headers Setup
         res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${safeFilename}`);
         res.setHeader("Content-Type", response.headers['content-type'] || (isSub ? 'text/plain' : 'video/mp4'));
         res.setHeader("Accept-Ranges", "bytes");
@@ -301,10 +288,9 @@ app.get('/api/download-proxy', async (req, res) => {
 
         res.status(response.status);
 
-        // Pipe stream directly to browser
+        // Direct Stream Pipe to Client
         response.data.pipe(res);
 
-        // Abort stream if client disconnects
         req.on('close', () => {
             if (response.data) {
                 response.data.destroy();
@@ -312,21 +298,18 @@ app.get('/api/download-proxy', async (req, res) => {
         });
 
     } catch (e) {
-        console.error("Proxy Download Error:", e.response?.status || e.message);
+        console.error("CDN Stream Proxy Error:", e.response?.status || e.message);
 
+        // Link එක කල් ඉකුත් වී ඇත්නම් (Expired token) Direct CDN එකට fallback redirect කරයි
         if (!res.headersSent) {
-            res.status(e.response?.status || 500).json({
-                success: false,
-                error: "CDN Download link expired or blocked.",
-                details: e.message
-            });
+            return res.redirect(302, targetUrl);
         }
     }
 });
 
 // HEALTH CHECK
 app.get('/api/health', (req, res) => {
-    res.json({ status: "ok", service: "MovieBox Direct Stream Engine", version: "5.0.0" });
+    res.json({ status: "ok", service: "MovieBox Direct CDN Proxy Engine", version: "6.0.0" });
 });
 
 app.listen(PORT, () => {
